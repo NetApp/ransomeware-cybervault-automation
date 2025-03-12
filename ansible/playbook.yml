@@ -1,0 +1,462 @@
+---
+- name: Initialize SnapLock Compliance Clock
+  hosts: localhost
+  gather_facts: no
+  collections:
+    - netapp.ontap
+  vars_files:
+    - vars.yml
+    - credentials.yml
+
+  tasks:
+    ### snaplock compliance clock initialization tasks
+    - name: Gather NetApp ONTAP cluster node info
+      netapp.ontap.na_ontap_info:
+        gather_subset: "cluster_node_info"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+      register: ontap_cluster_node_info
+
+    - name: Extract node names from
+      set_fact:
+        node_names: "{{ ontap_cluster_node_info.ontap_info.cluster_node_info | dict2items | map(attribute='key') | list }}"
+
+    - name: Log extracted node names
+      debug:
+        var: node_names
+
+    - name: Initialize SnapLock Compliance Clock
+      netapp.ontap.na_ontap_snaplock_clock:
+        node: "{{ item }}"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+      loop: "{{ node_names }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Log SnapLock Compliance Clock initialization success
+      debug:
+        msg: "Successfully initialized SnapLock Compliance clock for node {{ item }}"
+      loop: "{{ node_names }}"
+      loop_control:
+        label: "{{ item }}"
+
+    ### snaplock compliance volume creation and configuration tasks
+    - name: Create SnapLock Compliance volumes
+      netapp.ontap.na_ontap_volume:
+        state: present
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        vserver: "{{ DESTINATION_VSERVER }}"
+        name: "{{ item.0 }}"
+        aggregate_name: "{{ item.1 }}"
+        size: "{{ item.2 }}"
+        policy: default
+        type: DP
+        snaplock:
+          type: "enterprise"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+      loop: "{{ DESTINATION_VOLUME_NAMES | zip(DESTINATION_AGGREGATE_NAMES, DESTINATION_VOLUME_SIZES_GB) | list }}"
+      loop_control:
+        label: "{{ item.0 }}"
+
+    - name: Set SnapLock volume attributes
+      netapp.ontap.na_ontap_volume_snaplock:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        vserver: "{{ DESTINATION_VSERVER }}"
+        name: "{{ item }}"
+        minimum_retention_period: "{{ SNAPLOCK_MIN_RETENTION }}"
+        maximum_retention_period: "{{ SNAPLOCK_MAX_RETENTION }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+      loop: "{{ DESTINATION_VOLUME_NAMES }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Create SnapMirror relationships
+      netapp.ontap.na_ontap_snapmirror:
+        state: present
+        source_endpoint:
+          cluster: "NTAP915_Src"
+          path: "{{ SOURCE_VSERVER + ':' + item.0}}"
+        destination_endpoint:
+          cluster: "{{ DESTINATION_ONTAP_CLUSTER_NAME }}"
+          path: "{{ DESTINATION_VSERVER + ':' + item.1}}"
+        schedule: "{{ SNAPMIRROR_SCHEDULE }}"
+        policy: "{{ SNAPMIRROR_POLICY }}"
+        initialize: true
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+      loop: "{{ SOURCE_VOLUME_NAMES | zip(DESTINATION_VOLUME_NAMES) | list }}"
+      loop_control:
+        label: "{{ item.0 }}"
+  
+    ### Disabling data protocols for vserver
+    - name: Delete NFS service
+      netapp.ontap.na_ontap_nfs:
+        state: absent
+        vserver: "{{ DESTINATION_VSERVER }}"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+    
+    - name: Delete CIFS configuration
+      netapp.ontap.na_ontap_cifs:
+        name: "test"
+        state: absent
+        vserver: "{{ DESTINATION_VSERVER }}"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+
+    - name: Delete iSCSI service
+      netapp.ontap.na_ontap_iscsi:
+        state: absent
+        vserver: "{{ DESTINATION_VSERVER }}"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+
+    - name: Delete FCP service
+      netapp.ontap.na_ontap_fcp:
+        state: absent
+        vserver: "{{ DESTINATION_VSERVER }}"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+
+    ### Disabling Data LIFs for vserver
+    - name: Gather NetApp ONTAP cluster node info
+      netapp.ontap.na_ontap_info:
+        gather_subset: "net_interface_info"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+      register: ontap_network_interface_info
+
+    - name: Extract LIFs in the destination SVM with 'data_core' service
+      set_fact:
+        data_lifs: >-
+          {{
+            ontap_network_interface_info.ontap_info.net_interface_info
+            | dict2items
+            | selectattr('value.vserver', 'equalto', DESTINATION_VSERVER)
+            | selectattr('value.service_names.lif_service_name', 'contains', 'data_core')
+            | map(attribute='value')
+            | list
+          }}
+
+    - name: Extract LIF names
+      set_fact:
+        lif_names: "{{ data_lifs | map(attribute='interface_name') | list }}"
+
+    - name: Log filtered data LIF names
+      debug:
+        var: lif_names
+
+    - name: Disable all data LIFs on the vServer
+      netapp.ontap.na_ontap_interface:
+        interface_name: "{{ item.interface_name }}"
+        vserver: "{{ DESTINATION_VSERVER }}"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        state: present
+        admin_status: down
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+      loop: "{{ data_lifs }}"
+      loop_control:
+        label: "{{ item.interface_name }}"
+
+    - name: Log success message
+      debug:
+        msg: "Successfully disabled all data LIFs on vServer: {{ DESTINATION_VSERVER }}"
+
+
+    ### security hardening
+    - name: Set advanced privilege mode and disable confirmations for querying
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: "set -privilege advanced -confirmations off"
+
+    - name: Retrieve current default management service-policy configuration
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: "network interface service-policy show -vserver {{ DESTINATION_ONTAP_CLUSTER_NAME }}"
+      register: service_policy_output
+
+    - name: Display current service-policy configuration (for debugging)
+      debug:
+        msg: "{{ service_policy_output.msg | default('No output available') }}"
+
+    - name: Remove default management service if present
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: "set -privilege advanced -confirmations off; remove-service -vserver {{ DESTINATION_ONTAP_CLUSTER_NAME }} -policy default-management -service {{ item }}"
+      loop: "{{ DEFAULT_MANAGEMENT_SERVICES_TO_DISABLE }}"
+      loop_control:
+        label: "{{ item }}"
+      when: (service_policy_output.msg | default('')) | regex_search('\\s*' ~ item ~ ':')
+
+    - name: Log successful removal actions
+      debug:
+        msg: "Completed removal for service {{ item }}"
+      loop: "{{ DEFAULT_MANAGEMENT_SERVICES_TO_DISABLE }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Check if backup-ndmp-control exists in default intercluster
+      debug:
+        msg: "Checking if service backup-ndmp-control exists in {{ DESTINATION_ONTAP_CLUSTER_NAME }} default intercluster"
+  
+    - name: Retrieve current default intercluster service-policy configuration
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: "set -privilege advanced; network interface service-policy show -vserver {{ DESTINATION_ONTAP_CLUSTER_NAME }}"
+      register: intercluster_policy_output
+    
+    - name: Display current intercluster service-policy configuration (for debugging)
+      debug:
+        msg: "{{ intercluster_policy_output.cmds_output[0] | default('No output available') }}"
+    
+    - name: Remove backup-ndmp-control service if present from default intercluster
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: "set -privilege advanced -confirmations off; remove-service -vserver {{ DESTINATION_ONTAP_CLUSTER_NAME }} -policy default-intercluster -service backup-ndmp-control"
+      when: >
+        (intercluster_policy_output.cmds_output[0] | default('')).find("backup-ndmp-control:") != -1
+    
+    - name: Log successful removal of backup-ndmp-control
+      debug:
+        msg: "Successfully removed service backup-ndmp-control from default intercluster."
+      when: >
+        (intercluster_policy_output.cmds_output[0] | default('')).find("backup-ndmp-control:") != -1
+    
+    - name: Log that backup-ndmp-control service does not exist in default intercluster
+      debug:
+        msg: "Service backup-ndmp-control does not exist in {{ DESTINATION_ONTAP_CLUSTER_NAME }} default intercluster."
+      when: >
+        (intercluster_policy_output.cmds_output[0] | default('')).find("backup-ndmp-control:") == -1
+
+    - name: Restrict IP addresses for intercluster-core
+      debug:
+        msg: "Restricting IP addresses {{ SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS }} for intercluster-core"
+
+    - name: Modify service policy for intercluster-core to restrict allowed IPs
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: >-
+          set -privilege advanced -confirmations off; network interface service-policy modify-service -vserver {{ DESTINATION_ONTAP_CLUSTER_NAME }} -policy default-intercluster -service intercluster-core -allowed-addresses {{ SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS | join(',') }}
+
+    - name: Log successful restriction of IPs for intercluster-core
+      debug:
+        msg: "Successfully restricted IP addresses {{ SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS }} for intercluster-core"
+
+    - name: Restrict IP addresses for Cluster management core
+      debug:
+        msg: "Restricting IP addresses {{ ALLOWED_IPS }} for Cluster management core"
+
+    - name: Set allowed IP addresses for management-core
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: >-
+          set -privilege advanced -confirmations off;
+          network interface service-policy modify-service -vserver {{ DESTINATION_ONTAP_CLUSTER_NAME }} -policy default-management -service management-core -allowed-addresses {{ (ALLOWED_IPS is iterable and ALLOWED_IPS | join(',') ) | default(ALLOWED_IPS) }}
+
+    - name: Confirm management core update
+      debug:
+        msg: "Successfully restricted IP addresses {{ ALLOWED_IPS }} for Cluster management core"
+
+    - name: Restrict IP addresses for Cluster management HTTPS
+      debug:
+        msg: "Restricting IP addresses {{ ALLOWED_IPS }} for Cluster management HTTPS"
+
+    - name: Set allowed IP addresses for management-https
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: >-
+          set -privilege advanced -confirmations off;
+          network interface service-policy modify-service -vserver {{ DESTINATION_ONTAP_CLUSTER_NAME }} -policy default-management -service management-https -allowed-addresses {{ (ALLOWED_IPS is iterable and ALLOWED_IPS | join(',') ) | default(ALLOWED_IPS) }}
+
+    - name: Confirm management HTTPS update
+      debug:
+        msg: "Successfully restricted IP addresses {{ ALLOWED_IPS }} for Cluster management HTTPS"
+
+    ### create and configure audit_logs volume
+    - name: Create and mount audit_logs volume to junction path /audit_logs
+      na_ontap_volume:
+        state: present
+        name: audit_logs
+        vserver: "{{ DESTINATION_VSERVER }}"
+        aggregate_name: "{{ AUDIT_LOGS_AGGREGATE_NAME }}"
+        size: "{{ AUDIT_LOGS_VOLUME_SIZE_GB }}"
+        snaplock:
+          type: "enterprise"
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+
+    - name: Set SnapLock volume attributes
+      netapp.ontap.na_ontap_volume_snaplock:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        vserver: "{{ DESTINATION_VSERVER }}"
+        name: "audit_logs"
+        minimum_retention_period: "{{ SNAPLOCK_MIN_RETENTION }}"
+        maximum_retention_period: "{{ SNAPLOCK_MAX_RETENTION }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+    
+    - name: Enable audit logging for vServer "{{ DESTINATION_VSERVER }}"
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        vserver: "{{ DESTINATION_VSERVER }}"
+        https: true
+        validate_certs: "{{ VALIDATE_CERTS }}"
+        command: [
+          "set", "-privilege", "advanced", "-confirmations", "off;", "snaplock", "log", "create",
+          "-vserver", "{{ DESTINATION_VSERVER }}", "-volume", "audit_logs"
+        ]
+      register: audit_result
+
+    - name: Log audit logging enablement
+      debug:
+        msg: "Successfully enabled audit logging for vServer {{ DESTINATION_VSERVER }} at path /audit_logs."
+
+    ### multi admin approval configuration
+    - name: "Checking if Multi-Admin Approval is enabled"
+      na_ontap_command:
+        hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+        username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+        password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+        https: true
+        validate_certs: " {{ VALIDATE_CERTS }}"
+        command: "set -privilege advanced; security multi-admin-verify show"
+      register: maa_config
+
+    - name: "Display Multi-Admin Approval configuration"
+      debug:
+        msg: "{{ maa_config.cmds_output[0] | default('No output available') }}"
+
+    - name: "Multi-Admin Approval is configured and enabled"
+      debug:
+        msg: "Multi-Admin Approval is configured and enabled"
+      when: ("Enabled" in (maa_config.cmds_output[0] | default(""))) and ("true" in (maa_config.cmds_output[0] | default("")))
+
+    - block:
+        - name: "Setting Multi-Admin approval rules"
+          debug:
+            msg: "Setting Multi-Admin approval rules"
+
+        - name: "Create multi-admin approval rules"
+          na_ontap_command:
+            hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+            username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+            password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+            https: true
+            validate_certs: " {{ VALIDATE_CERTS }}"
+            command: 'security multi-admin-verify rule create -operation "{{ item }}"'
+          loop:
+            - "cluster peer delete"
+            - "vserver peer delete"
+            - "volume snapshot policy modify"
+            - "volume snapshot rename"
+            - "vserver audit modify"
+            - "vserver audit delete"
+            - "vserver audit disable"
+
+        - name: "Creating multi-admin approval group"
+          na_ontap_command:
+            hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+            username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+            password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+            https: true
+            validate_certs: " {{ VALIDATE_CERTS }}"
+            command: [
+              "security", "multi-admin-verify", "approval-group", "create",
+              "-name", "{{ MULTI_ADMIN_APPROVAL_GROUP_NAME }}", "-approvers", "{{ MULTI_ADMIN_APPROVAL_USERS | join(',') }}",
+              "-email", "{{ MULTI_ADMIN_APPROVAL_EMAIL }}"
+            ]
+
+        - name: "Created multi-admin approval group for ONTAP Cluster {{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+          debug:
+            msg: "Created multi-admin approval group for ONTAP Cluster {{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}, Group name: {{ MULTI_ADMIN_APPROVAL_GROUP_NAME }}, Users: {{ MULTI_ADMIN_APPROVAL_USERS }}, Email: {{ MULTI_ADMIN_APPROVAL_EMAIL }}"
+
+        - name: "Enabling multi-admin approval group {{ MULTI_ADMIN_APPROVAL_GROUP_NAME }}"
+          na_ontap_command:
+            hostname: "{{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+            username: "{{ DESTINATION_ONTAP_CREDS.username }}"
+            password: "{{ DESTINATION_ONTAP_CREDS.password }}"
+            https: true
+            validate_certs: " {{ VALIDATE_CERTS }}"
+            command: "security multi-admin-verify modify -approval-groups {{ MULTI_ADMIN_APPROVAL_GROUP_NAME }} -required-approvers 1 -enabled true"
+
+        - name: "Enabled multi-admin approval group {{ MULTI_ADMIN_APPROVAL_GROUP_NAME }}"
+          debug:
+            msg: "Enabled multi-admin approval group {{ MULTI_ADMIN_APPROVAL_GROUP_NAME }}"
+
+        - name: "Successfully enabled multi-admin approval for ONTAP Cluster {{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+          debug:
+            msg: "Successfully enabled multi-admin approval for ONTAP Cluster {{ DESTINATION_ONTAP_CLUSTER_MGMT_IP }}"
+      when: not ( ("Enabled" in (maa_config.cmds_output[0] | default(""))) and ("true" in (maa_config.cmds_output[0] | default(""))) )

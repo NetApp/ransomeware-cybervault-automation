@@ -28,7 +28,8 @@
     -DESTINATION_ONTAP_CLUSTER_MGMT_IP "cluster2.demo.netapp.com" `
     -DESTINATION_ONTAP_CLUSTER_NAME "cluster2" `
     -DESTINATION_VSERVER "svm2" `
-    -DESTINATION_AGGREGATE_NAME "cluster2_01_SSD_1","cluster2_01_SSD_1" `
+    -DESTINATION_AGGREGATE_NAMES "cluster2_01_SSD_1","cluster2_01_SSD_1" `
+    -AUDIT_LOG_AGGREGATE_NAME "cluster2_01_SSD_1" `
     -DESTINATION_VOLUME_NAME "cvault_legal","cvault_marketing" `
     -DESTINATION_VOLUME_SIZE "25g","5g" `
     -SNAPLOCK_MIN_RETENTION "15minutes" `
@@ -67,6 +68,8 @@ param (
     [String[]]$DESTINATION_VOLUME_NAMES,
     [Parameter(Mandatory=$True, HelpMessage="Destination Aggregate Name")]
     [String[]]$DESTINATION_AGGREGATE_NAMES,
+    [Parameter(Mandatory=$True, HelpMessage="Destination Audit log volume Aggregate Name")]
+    [String]$AUDIT_LOG_AGGREGATE_NAME,
     [Parameter(Mandatory=$True, HelpMessage="Destination Volume Size")]
     [String[]]$DESTINATION_VOLUME_SIZES,
     [Parameter(Mandatory=$True, HelpMessage="SnapLock minimum retention period")]
@@ -477,7 +480,7 @@ function additionalSecurityHardening {
             logMessage -message "Service backup-ndmp-control does not exists in $DESTINATION_ONTAP_CLUSTER_NAME default management" -type "SUCCESS"
         }
 
-        $command = "set -privilege advanced -confirmations off;network interface service-policy modify-service -vserver cluster2 -policy default-intercluster -service intercluster-core -allowed-addresses $SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS;"
+        $command = "set -privilege advanced -confirmations off;network interface service-policy modify-service -vserver $DESTINATION_ONTAP_CLUSTER_NAME -policy default-intercluster -service intercluster-core -allowed-addresses $SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS;"
         logMessage -message "Restricting IP addresses $SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS for intercluster-core"
         Invoke-NcSsh -Name $DESTINATION_ONTAP_CLUSTER_MGMT_IP -Credential $DESTINATION_ONTAP_CREDS -Command $command -ErrorAction Stop
         logMessage -message "Sucessfully restricted IP addresses $SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS for intercluster-core" -type "SUCCESS"
@@ -496,17 +499,17 @@ function additionalSecurityHardening {
             }
         }
 
-        $command = "set -privilege advanced -confirmations off;network interface service-policy modify-service -vserver cluster2 -policy default-management -service management-core -allowed-addresses $ALLOWED_IPS;"
+        $command = "set -privilege advanced -confirmations off;network interface service-policy modify-service -vserver $DESTINATION_ONTAP_CLUSTER_NAME -policy default-management -service management-core -allowed-addresses $ALLOWED_IPS;"
         logMessage -message "Restricting IP addresses $ALLOWED_IPS for Cluster management core"
         Invoke-NcSsh -Name $DESTINATION_ONTAP_CLUSTER_MGMT_IP -Credential $DESTINATION_ONTAP_CREDS -Command $command -ErrorAction Stop
         logMessage -message "Sucessfully restricted IP addresses $ALLOWED_IPS for Cluster management core" -type "SUCCESS"
 
-        $command = "set -privilege advanced -confirmations off;network interface service-policy modify-service -vserver cluster2 -policy default-management -service management-https -allowed-addresses $ALLOWED_IPS;"
+        $command = "set -privilege advanced -confirmations off;network interface service-policy modify-service -vserver $DESTINATION_ONTAP_CLUSTER_NAME -policy default-management -service management-https -allowed-addresses $ALLOWED_IPS;"
         logMessage -message "Restricting IP addresses $ALLOWED_IPS for Cluster management HTTPS"
         Invoke-NcSsh -Name $DESTINATION_ONTAP_CLUSTER_MGMT_IP -Credential $DESTINATION_ONTAP_CREDS -Command $command -ErrorAction Stop
         logMessage -message "Sucessfully restricted IP addresses $ALLOWED_IPS for Cluster management HTTPS" -type "SUCCESS"
 
-        $command = "set -privilege advanced -confirmations off;network interface service-policy modify-service -vserver cluster2 -policy default-management -service management-ssh -allowed-addresses $ALLOWED_IPS;"
+        $command = "set -privilege advanced -confirmations off;network interface service-policy modify-service -vserver $DESTINATION_ONTAP_CLUSTER_NAME -policy default-management -service management-ssh -allowed-addresses $ALLOWED_IPS;"
         logMessage -message "Restricting IP addresses $ALLOWED_IPS for Cluster management SSH"
         Invoke-NcSsh -Name $DESTINATION_ONTAP_CLUSTER_MGMT_IP -Credential $DESTINATION_ONTAP_CREDS -Command $command -ErrorAction Stop
         logMessage -message "Sucessfully restricted IP addresses $ALLOWED_IPS for Cluster management SSH" -type "SUCCESS"
@@ -519,7 +522,7 @@ function additionalSecurityHardening {
         } else {
             # Create audit logs volume
             logMessage -message "Creating audit logs volume : audit_logs"
-            New-NcVol -Name audit_logs -Aggregate $DESTINATION_AGGREGATE_NAME -Size 5g -ErrorAction Stop | Select-Object -Property Name, State, TotalSize, Aggregate, Vserver
+            New-NcVol -Name audit_logs -Aggregate $AUDIT_LOG_AGGREGATE_NAME -Size 5g -ErrorAction Stop | Select-Object -Property Name, State, TotalSize, Aggregate, Vserver
             logMessage -message "Volume audit_logs created successfully" -type "SUCCESS"
         }
 
@@ -530,7 +533,7 @@ function additionalSecurityHardening {
     
         logMessage -message "Enabling audit logging for vServer $DESTINATION_VSERVER at path /vol/audit_logs"
         $command = "set -privilege advanced -confirmations off;vserver audit create -vserver $DESTINATION_VSERVER -destination /audit_logs -format xml;"
-        Invoke-SSHCommand -SessionI  $sshSession.SessionId -Command $command -ErrorAction Stop
+        Invoke-NcSsh -Name $DESTINATION_ONTAP_CLUSTER_MGMT_IP -Credential $DESTINATION_ONTAP_CREDS -Command $command -ErrorAction Stop
         logMessage -message "Successfully enabled audit logging for vServer $DESTINATION_VSERVER at path /vol/audit_logs"
     
     } catch {

@@ -1,0 +1,49 @@
+DESTINATION_ONTAP_CLUSTER_MGMT_IP: "10.10.10.101"
+VALIDATE_CERTS: false
+DESTINATION_ONTAP_CLUSTER_NAME: "NTAP915_Dest"
+SOURCE_VSERVER: "svm_NFS"
+SOURCE_VOLUME_NAMES:
+  - "Demo_RP_Vol01"
+  - "Demo_RP_Vol02"
+DESTINATION_VSERVER: "SVM_File"
+DESTINATION_VOLUME_NAMES:
+  - "Demo_RP_Vol01_CyberVault"
+  - "Demo_RP_Vol02_CyberVault"
+DESTINATION_AGGREGATE_NAMES:
+  - "NTAP915_Dest_01_VM_DISK_1"
+  - "NTAP915_Dest_01_VM_DISK_1"
+DESTINATION_VOLUME_SIZES_GB:
+  - "1"
+  - "1"
+SNAPLOCK_MIN_RETENTION: "15minutes"
+SNAPLOCK_MAX_RETENTION: "30minutes"
+SNAPMIRROR_SCHEDULE: "5min"
+SNAPMIRROR_POLICY: "XDPDefault"
+# List of management services to disable
+DEFAULT_MANAGEMENT_SERVICES_TO_DISABLE:
+  - management-snmp-server
+  - management-ntp-server
+  - management-log-forwarding
+  - management-nis-client
+  - management-ad-client
+  - management-autosupport
+  - management-ems
+  - management-ntp-client
+  - management-dns-client
+  - management-ldap-client
+  - management-http
+# ONTAP connection details (adjust as needed)
+SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS:
+  - "172.21.166.101/32"
+  - "172.21.166.102/32"
+ALLOWED_IPS:
+  - "10.10.10.11/32"
+  - "10.10.10.12/32"
+AUDIT_LOGS_VOLUME_SIZE_GB: "5"
+AUDIT_LOGS_AGGREGATE_NAME: "NTAP915_Dest_01_VM_DISK_1"
+# Multi-Admin Approval Variables
+MULTI_ADMIN_APPROVAL_GROUP_NAME: "vaultadmins"
+MULTI_ADMIN_APPROVAL_USERS: 
+  - "vaultadmin1"
+  - "vaultadmin2"
+MULTI_ADMIN_APPROVAL_EMAIL: "vaultadmins@netapp.com"
