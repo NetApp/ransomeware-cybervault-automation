@@ -70,13 +70,107 @@ Note that there are certain restrictions around producing and/or sharing any der
 Copyright: 2024 NetApp Inc.
 
 ## Deployment Guide
+There are 2 deployment options which are with Ansible and Powershell. The deployment steps are mentioned below
+
+### Ansible Execution
+#### Prerequisites:
+- Ansible installed. This script was tested using "ansible [core 2.15.0]"
+- NetApp ONTAP Ansible collection installed. This script was tested using "netapp.ontap collection (version 22.13.0)"
+        ```
+        ansible-galaxy collection install netapp.ontap
+        ```
 #### Step 1 : Clone the GitHub repository
 Clone the GitHub repository in your local system
 ```
 # git clone https://github.com/NetApp/ransomeware-cybervault-automation.git
 ```
 
-#### Step 2 : Run powershell script "cybervault.ps1" with required inputs/parameters and specify the script mode to implement different functionalities
+#### Step 2: Go to "ansible" directory
+```
+# cd powershell
+```
+
+#### Step 3: Configure "vars.yml". Sample file is already provided, update values as needed
+```
+DESTINATION_ONTAP_CLUSTER_MGMT_IP: "10.10.10.101"
+VALIDATE_CERTS: false
+DESTINATION_ONTAP_CLUSTER_NAME: "NTAP915_Dest"
+SOURCE_VSERVER: "svm_NFS"
+SOURCE_VOLUME_NAMES:
+  - "Demo_RP_Vol01"
+  - "Demo_RP_Vol02"
+DESTINATION_VSERVER: "SVM_File"
+DESTINATION_VOLUME_NAMES:
+  - "Demo_RP_Vol01_CyberVault"
+  - "Demo_RP_Vol02_CyberVault"
+DESTINATION_AGGREGATE_NAMES:
+  - "NTAP915_Dest_01_VM_DISK_1"
+  - "NTAP915_Dest_01_VM_DISK_1"
+DESTINATION_VOLUME_SIZES_GB:
+  - "1"
+  - "1"
+SNAPLOCK_MIN_RETENTION: "15minutes"
+SNAPLOCK_MAX_RETENTION: "30minutes"
+SNAPMIRROR_SCHEDULE: "5min"
+SNAPMIRROR_POLICY: "XDPDefault"
+# List of management services to disable
+DEFAULT_MANAGEMENT_SERVICES_TO_DISABLE:
+  - management-snmp-server
+  - management-ntp-server
+  - management-log-forwarding
+  - management-nis-client
+  - management-ad-client
+  - management-autosupport
+  - management-ems
+  - management-ntp-client
+  - management-dns-client
+  - management-ldap-client
+  - management-http
+# ONTAP connection details (adjust as needed)
+SOURCE_ONTAP_ALLOWED_INTERCLUSTER_IPS:
+  - "172.21.166.101/32"
+  - "172.21.166.102/32"
+ALLOWED_IPS:
+  - "10.10.10.11/32"
+  - "10.10.10.12/32"
+AUDIT_LOGS_VOLUME_SIZE_GB: "5"
+AUDIT_LOGS_AGGREGATE_NAME: "NTAP915_Dest_01_VM_DISK_1"
+# Multi-Admin Approval Variables
+MULTI_ADMIN_APPROVAL_GROUP_NAME: "vaultadmins"
+MULTI_ADMIN_APPROVAL_USERS: 
+  - "vaultadmin1"
+  - "vaultadmin2"
+MULTI_ADMIN_APPROVAL_EMAIL: "vaultadmins@netapp.com"
+```
+
+#### Step 4: Configure "credentials.yml" and encrypt using ansible-vault. Sample file is already provided, update values as needed
+```
+DESTINATION_ONTAP_CREDS:
+  username: ""
+  password: ""
+```
+```
+# ansible-vault encrypt credentials.yml
+```
+
+#### Step 5: Execute "playbook.yml" using ansible-playbook. Use the passphrase used to encrypt the credentials.yml when prompted
+```
+# ansible-playbook playbook.yml --ask-vault-pass
+```
+
+### Powershell Execution
+#### Step 1 : Clone the GitHub repository
+Clone the GitHub repository in your local system
+```
+# git clone https://github.com/NetApp/ransomeware-cybervault-automation.git
+```
+
+#### Step 2: Go to "powershell" directory
+```
+# cd powershell
+```
+
+#### Step 3 : Run powershell script "cybervault.ps1" with required inputs/parameters and specify the script mode to implement different functionalities
 Example :
 ```
 ./cybervault.ps1 `
@@ -88,7 +182,8 @@ Example :
     -DESTINATION_ONTAP_CLUSTER_MGMT_IP "cluster2.demo.netapp.com" `
     -DESTINATION_ONTAP_CLUSTER_NAME "cluster2" `
     -DESTINATION_VSERVER "svm2" `
-    -DESTINATION_AGGREGATE_NAME "cluster2_01_SSD_1","cluster2_01_SSD_1" `
+    -DESTINATION_AGGREGATE_NAMES "cluster2_01_SSD_1","cluster2_01_SSD_1" `
+    -AUDIT_LOG_AGGREGATE_NAME "cluster2_01_SSD_1" `
     -DESTINATION_VOLUME_NAME "cvault_legal","cvault_marketing" `
     -DESTINATION_VOLUME_SIZE "25g","5g" `
     -SNAPLOCK_MIN_RETENTION "15minutes" `
