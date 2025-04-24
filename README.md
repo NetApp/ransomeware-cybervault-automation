@@ -87,7 +87,7 @@ Clone the GitHub repository in your local system
 
 #### Step 2: Go to "ansible" directory
 ```
-# cd powershell
+# cd ansible
 ```
 
 #### Step 3: Configure "vars.yml". Sample file is already provided, update values as needed
