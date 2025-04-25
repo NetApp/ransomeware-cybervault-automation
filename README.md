@@ -197,7 +197,7 @@ Example :
     -CRON_SCHEDULE 5min `
     -SNAPMIRROR_RESUME_MINUTES_BOFORE_SM 2 `
     -SNAPMIRROR_QUIESCE_MINUTES_POST_SM 2 `
-    -DOMAIN_ADMINISTRATOR_USERNAME "DEMO\Administrator" `
+    -DOMAIN_ADMINISTRATOR_USERNAME "administrator@demo.netapp.com" `
     -SCRIPT_MODE configure
 ```
 Note : Script to be executed with Administrator (or) other account with similar privileges
